@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using FunctionApp1.Messages;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
 namespace FunctionApp1
 {
@@ -22,21 +23,103 @@ namespace FunctionApp1
         {
             log.LogInformation("C# HTTP trigger function processed a request.");
 
-            //TODO model HttpRequest from fields of MessageToMom
-            //Map new model values (from HttpRequest) to MessageToMom below
+            // Validate data from HttpRequest.
+            var valid = validateRequest(req);
+            if (!valid.valid)
+            {
+                return (ActionResult)new BadRequestObjectResult(valid.errorMessage);
+            }
 
-            var message = new MessageToMom {
-                Flattery = new List<string> { "amazing", "fabulous", "profitable" },
-                Greeting = "So Good To Hear From You",
-                HowMuch = 1222.22M,
-                HowSoon = DateTime.UtcNow.AddDays(1),
-                From = "yourbelovedson@gmail.com"
-            
+            // Handle multiple flattery values from req.
+            string flattery = req.Query["flattery"];
+            string[] flatteyArray = flattery.Split(",");
+            List<string> flatteryList = new List<string>(flatteyArray);
+
+            // Handle a request that doesn't include an explicit HowSoon date.
+            DateTime? howsoon = null;
+            if ((string)req.Query["howsoon"] != null && (string)req.Query["howsoon"] != "")
+            {
+                howsoon = DateTime.Parse(req.Query["howsoon"]);
+            }
+
+            var message = new MessageToMom
+            {
+                Flattery = flatteryList,
+                Greeting = req.Query["greeting"],
+                HowMuch = decimal.Parse(req.Query["howmuch"]),
+                HowSoon = howsoon,
+                From = req.Query["from"]
             };
 
             await letterCollector.AddAsync(message);
 
-            return (ActionResult)new OkObjectResult($"Hello, Johnny");
+            return (ActionResult)new OkObjectResult($"Success");
+        }
+
+        // Validate fields from HttpRequest.
+        // Required fields: string flattery (can have multiple), string greeting, decimal howmuch, string from.
+        // Optional fields: decimal howmuch.
+        private (bool valid, string errorMessage) validateRequest(HttpRequest req)
+        {
+            bool valid = true;
+            string errorMessage = "";
+
+            string flattery = req.Query["flattery"];
+            if (flattery == null)
+            {
+                valid = false;
+                errorMessage += "Value 'flattery' is required. Multiple flattery values are permitted but at least one is required.\n";
+            }
+            string greeting = req.Query["greeting"];
+            if (greeting == null)
+            {
+                valid = false;
+                errorMessage += "Value 'greeting' is required.\n";
+            }
+            string howmuch = req.Query["howmuch"];
+            try
+            {
+                decimal.Parse(howmuch);
+            }
+            catch
+            {
+                valid = false;
+                errorMessage += "Value 'howmuch' is required and must be a decimal value.\n";
+            }
+            string howsoon = req.Query["howsoon"];
+            if (howsoon != null && howsoon != "")
+            {
+                try
+                {
+                    DateTime.Parse(howsoon);
+                }
+                catch
+                {
+                    valid = false;
+                    errorMessage += "Value 'howsoon' is optional but if included it must be a date in the format MM/DD/YYYY.\n";
+                }
+            }
+            string from = req.Query["from"];
+            if (!validateEmailFormat(from))
+            {
+                valid = false;
+                errorMessage += "Value 'from' is required and must be a properly formatted email address (e.g. email@email.com).\n";
+            }
+
+            return (valid, errorMessage);
+        }
+
+        // Validate the format of an email.
+        public bool validateEmailFormat(string email)
+        {
+            if (email == null)
+            {
+                return false;
+            }
+            var emailValidator = new EmailAddressAttribute();
+            return emailValidator.IsValid(email);
         }
     }
+
+
 }
