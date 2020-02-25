@@ -1,9 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 using FunctionApp1.Messages;
 using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Extensions.Logging;
 
 namespace FunctionApp1
@@ -15,32 +13,56 @@ namespace FunctionApp1
             [Queue("outputletter")] IAsyncCollector<FormLetter> letterCollector,
             ILogger log)
         {
-            log.LogInformation($"{myQueueItem.Greeting} {myQueueItem.HowMuch} {myQueueItem.HowSoon}");
             log.LogInformation($"C# Queue trigger function processed: {myQueueItem}");
 
-            //TODO parse flattery list into comma separated string
-            //TODO populate Header with salutation comma separated string and "Mother"
+            decimal maximumAmount = 10000.00M;
+            int businessDaysToProcessLoan = 10;
 
-            //TODO calculate likelihood of receiving loan based on this decision tree
-            // 100 percent likelihood (initial value) minus the probability expressed from the quotient of howmuch and the total maximum amount ($10000)
+            FormLetter formLetter = new FormLetter
+            {
+                Heading = $"{myQueueItem.Greeting} {string.Join(", ", myQueueItem.Flattery)} Mother",
+                Likelihood = calculateLoanLikelihood(maximumAmount, myQueueItem.HowMuch),
+                ExpectedDate = calculateApproximateLoanDate(DateTime.UtcNow, businessDaysToProcessLoan),
+                RequestedDate = myQueueItem.HowSoon ?? calculateApproximateLoanDate(DateTime.UtcNow, businessDaysToProcessLoan),
+                Body = $"Really need help: I need ${myQueueItem.HowMuch} by " +
+                       $"{myQueueItem.HowSoon ?? calculateApproximateLoanDate(DateTime.UtcNow, businessDaysToProcessLoan)}."
+            };
 
-            //TODO calculate approximate actual date of loan receipt based on this decision tree
-            // funds will be made available 10 business days after day of submission
-            // business days are weekdays, there are no holidays that are applicable
-            
-            //TODO use new values to populate letter values per the following:
-            //Body:"Really need help: I need $5523.23 by December 12,2020"
-            //ExpectedDate = calculated date
-            //RequestedDate = howsoon
-            //Heading=Greeting
-            //Likelihood = calculated likelihood
-
-            await letterCollector.AddAsync(new FormLetter { });
+            await letterCollector.AddAsync(formLetter);
         }
 
-        
+        // Calculate likelihood of receiving a loan based on 100 percent likelihood (initial value) minus 
+        // the probability expressed from the quotient of loan request amount and the total maximum amount allowed.
+        public double calculateLoanLikelihood(decimal maximumAmount, decimal requestedAmount)
+        {
+            return Math.Round(Math.Max(100 - (double)(requestedAmount / maximumAmount) * 100, 0), 2);
+        }
+
+        // Calculate approximate actual date of loan receipt based on funds will 
+        // be made available X business days after day of submission. Business days
+        // are weekdays and there are no holidays that are applicable.
+        public DateTime calculateApproximateLoanDate(DateTime startDate, int businessDays)
+        {
+            if (startDate.DayOfWeek == DayOfWeek.Sunday)
+            {
+                startDate.AddDays(-2);
+            }
+            if (startDate.DayOfWeek == DayOfWeek.Saturday)
+            {
+                startDate.AddDays(-1);
+            }
+
+            int daysUntillWeekend = 5 - (int)startDate.DayOfWeek;
+            if (businessDays <= daysUntillWeekend)
+            {
+                return startDate.AddDays(businessDays);
+            }
+
+            startDate = startDate.AddDays(daysUntillWeekend + 2);
+            businessDays = businessDays - daysUntillWeekend;
+            int weekends = businessDays / 5;
+
+            return startDate.AddDays(businessDays + weekends * 2);
+        }
     }
-
-
-    
 }
